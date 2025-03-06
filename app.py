@@ -78,7 +78,9 @@ def download_pdf_from_s3(bucket_name, object_key):
 
 def pdf_to_images(pdf_path):
     """ Convierte un PDF a una lista de imágenes en formato PIL """
-    return pdf2image.convert_from_path(pdf_path, dpi=300, poppler_path="/opt/opt/bin/")
+    poppler_path = "/usr/bin"
+
+    return pdf2image.convert_from_path(pdf_path, dpi=300, poppler_path=poppler_path, fmt='png')
 
 
 def upload_images_to_s3(bucket_name, original_pdf_key, images):
@@ -86,10 +88,10 @@ def upload_images_to_s3(bucket_name, original_pdf_key, images):
     base_name = os.path.basename(original_pdf_key).replace(".pdf", "")
     
     for i, img in enumerate(images):
-        temp_image_path = f"/tmp/{base_name}_page_{i+1}.jpeg"
-        img.save(temp_image_path, "JPEG")
+        temp_image_path = f"/tmp/{base_name}_page_{i+1}.png"
+        img.save(temp_image_path, "PNG",)
 
-        destination_key = f"{DESTINATION_FOLDER}{base_name}_page_{i+1}.jpeg"
+        destination_key = f"{DESTINATION_FOLDER}{base_name}_page_{i+1}.png"
         s3.upload_file(temp_image_path, bucket_name, destination_key)
         os.remove(temp_image_path)  # Eliminar archivo temporal
 
