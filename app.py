@@ -33,6 +33,7 @@ def lambda_handler(event, context):
             docs_proccesed = []
             for item in response['Items']:
                 object_key =  item['obj_key']['S']
+                case_id = item['case_id']['S']
 
                 if object_key.endswith(".pdf"):
                     try:
@@ -43,7 +44,7 @@ def lambda_handler(event, context):
                         images = pdf_to_images(pdf_temp_path)
                         
                         # Subir imágenes a S3
-                        upload_images_to_s3(BUCKET_NAME, object_key, images)
+                        upload_images_to_s3(BUCKET_NAME, case_id, object_key, images)
                         
                         print(f"PDF {object_key} procesado y guardado en {DESTINATION_FOLDER}")
                         docs_proccesed.append(object_key)
@@ -83,7 +84,7 @@ def pdf_to_images(pdf_path):
     return pdf2image.convert_from_path(pdf_path, dpi=300, poppler_path=poppler_path, fmt='png')
 
 
-def upload_images_to_s3(bucket_name, original_pdf_key, images):
+def upload_images_to_s3(bucket_name, case_id, original_pdf_key, images):
     """ Sube las imágenes generadas a S3 en el folder destino """
     base_name = os.path.basename(original_pdf_key).replace(".pdf", "")
     
@@ -91,7 +92,7 @@ def upload_images_to_s3(bucket_name, original_pdf_key, images):
         temp_image_path = f"/tmp/{base_name}_page_{i+1}.png"
         img.save(temp_image_path, "PNG",)
 
-        destination_key = f"{DESTINATION_FOLDER}{base_name}_page_{i+1}.png"
+        destination_key = f"{DESTINATION_FOLDER}{case_id}{base_name}_page_{i+1}.png"
         s3.upload_file(temp_image_path, bucket_name, destination_key)
         os.remove(temp_image_path)  # Eliminar archivo temporal
 
