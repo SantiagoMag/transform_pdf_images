@@ -15,16 +15,25 @@ DESTINATION_FOLDER = "invoking_bedrock_classification/proccesed/"
 
 def lambda_handler(event, context):
     # The path to the 'pdftoppm' tool
+    #batch_id = event['batch_id']
+
     try:
+        batch_id = json.loads(event['body']).get('batch_id')  # Si viene en el body (POST)
+
+        filter_expression = "#s = :open"
+        expression_names = {"#s": "status"}
+        expression_values = {":open": {"S": "open"}}
+
+        if batch_id:
+            filter_expression += " AND #b = :batch_id"
+            expression_names["#b"] = "batch_id"
+            expression_values[":batch_id"] = {"S": batch_id}
+        
         response = dynamodb.scan(
             TableName=TABLE_NAME,
-            FilterExpression="#s = :open",  # Usar alias para el atributo 'status'
-            ExpressionAttributeNames={
-                '#s': 'status'  # Asignar el alias '#s' al atributo 'status'
-            },
-            ExpressionAttributeValues={
-                ':open': {'S': 'open'}  # Comparar con el valor 'open' en el atributo 'status'
-            }
+            FilterExpression=filter_expression,
+            ExpressionAttributeNames=expression_names,
+            ExpressionAttributeValues=expression_values
         )
 
 
