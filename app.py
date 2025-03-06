@@ -23,7 +23,7 @@ def lambda_handler(event, context):
                 '#s': 'status'  # Asignar el alias '#s' al atributo 'status'
             },
             ExpressionAttributeValues={
-                ':closed': {'S': 'close'}  # Comparar con el valor 'close' en el atributo 'status'
+                ':open': {'S': 'open'}  # Comparar con el valor 'open' en el atributo 'status'
             }
         )
 
