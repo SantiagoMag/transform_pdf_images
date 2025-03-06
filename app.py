@@ -1,57 +1,95 @@
 import os
 import json
 import boto3
-from pdf2image import convert_from_path
+import pdf2image
+import tempfile
+from botocore.exceptions import ClientError
 
 s3 = boto3.client('s3')
+dynamodb = boto3.client('dynamodb')
+
+BUCKET_NAME = os.environ['BUCKET_NAME']
+TABLE_NAME = os.environ['DYNAMODB_TABLE']
+DESTINATION_FOLDER = "invoking_bedrock_classification/proccesed/" 
+
 
 def lambda_handler(event, context):
     # The path to the 'pdftoppm' tool
-    poppler_path = "/usr/bin"
-    
-    # Retrieve PDF from S3
-    bucket_name = event['bucket_name']
-    object_key = event['object_key']
-    input_pdf_path = f"/tmp/{os.path.basename(object_key)}"
-    
     try:
-        s3.download_file(bucket_name, object_key, input_pdf_path)
-        print(f"Successfully downloaded {object_key} from S3 bucket {bucket_name} to {input_pdf_path}")
-    except Exception as e:
-        print(f"Error downloading file from S3: {e}")
-        return {
-            'statusCode': 500,
-            'body': json.dumps(f"Error downloading file from S3: {e}")
-        }
+        response = dynamodb.scan(
+            TableName=TABLE_NAME,
+            FilterExpression="#s = :open",  # Usar alias para el atributo 'status'
+            ExpressionAttributeNames={
+                '#s': 'status'  # Asignar el alias '#s' al atributo 'status'
+            },
+            ExpressionAttributeValues={
+                ':closed': {'S': 'close'}  # Comparar con el valor 'close' en el atributo 'status'
+            }
+        )
 
-    # Check if the file exists
-    if not os.path.exists(input_pdf_path):
-        print(f"File not found: {input_pdf_path}")
-        return {
-            'statusCode': 404,
-            'body': json.dumps(f"File not found: {input_pdf_path}")
-        }
-    
-    # Output directory for images
-    output_dir = "/tmp"
-    
-    try:
-        # Convert PDF to images
-        images = convert_from_path(input_pdf_path, output_folder=output_dir, poppler_path=poppler_path, fmt='png')
-        
-        # Optionally, save images to S3 or process them further
-        for i, image in enumerate(images):
-            image_path = f"{output_dir}/page_{i + 1}.png"
-            image.save(image_path, "PNG")
-            s3.upload_file(image_path, bucket_name, f"converted_images/{os.path.basename(object_key)}_page_{i + 1}.png")
-        
-        return {
-            'statusCode': 200,
-            'body': json.dumps('PDF conversion successful')
-        }
-    except Exception as e:
-        print(f"Error: {e}")
+
+        if 'Items' in response:
+
+            docs_proccesed = []
+            for item in response['Items']:
+                object_key =  item['obj_key']['S']
+
+                if object_key.endswith(".pdf"):
+                    try:
+                        # Descargar el PDF desde S3
+                        pdf_temp_path = download_pdf_from_s3(BUCKET_NAME, object_key)
+                        
+                        # Convertir PDF a imágenes
+                        images = pdf_to_images(pdf_temp_path)
+                        
+                        # Subir imágenes a S3
+                        upload_images_to_s3(BUCKET_NAME, object_key, images)
+                        
+                        print(f"PDF {object_key} procesado y guardado en {DESTINATION_FOLDER}")
+                        docs_proccesed.append(object_key)
+                    except Exception as e:
+                        print(f"Error procesando el PDF: {str(e)}")
+                else:
+                    print(f"Archivo ignorado: {object_key}")
+
+            return {
+                'statusCode': 200,
+                'body': json.dumps(docs_proccesed)  # Return the items that meet the filter criteria
+            }
+        else:
+            return {
+                'statusCode': 404,
+                'body': json.dumps({"message": "No items found matching criteria"})
+            }
+
+    except ClientError as e:
+        # Handle errors
         return {
             'statusCode': 500,
-            'body': json.dumps(f"PDF conversion failed: {e}")
+            'body': json.dumps({'error': e.response['Error']['Message']})
         }
+   
+
+def download_pdf_from_s3(bucket_name, object_key):
+    """ Descarga el PDF desde S3 y lo guarda temporalmente """
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    s3.download_file(bucket_name, object_key, temp_file.name)
+    return temp_file.name
+
+def pdf_to_images(pdf_path):
+    """ Convierte un PDF a una lista de imágenes en formato PIL """
+    return pdf2image.convert_from_path(pdf_path, dpi=300, poppler_path="/opt/opt/bin/")
+
+
+def upload_images_to_s3(bucket_name, original_pdf_key, images):
+    """ Sube las imágenes generadas a S3 en el folder destino """
+    base_name = os.path.basename(original_pdf_key).replace(".pdf", "")
+    
+    for i, img in enumerate(images):
+        temp_image_path = f"/tmp/{base_name}_page_{i+1}.jpeg"
+        img.save(temp_image_path, "JPEG")
+
+        destination_key = f"{DESTINATION_FOLDER}{base_name}_page_{i+1}.jpeg"
+        s3.upload_file(temp_image_path, bucket_name, destination_key)
+        os.remove(temp_image_path)  # Eliminar archivo temporal
+
