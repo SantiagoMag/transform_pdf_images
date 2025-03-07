@@ -48,7 +48,7 @@ def lambda_handler(event, context):
 
                     if object_key.endswith(".pdf"):
                         try:
-                            update_dynamodb_status(item['case_id']['S'],"processing_capture")
+                            update_dynamodb_status(case_id,"processing_capture")
                             
                             # Descargar el PDF desde S3
                             pdf_temp_path = download_pdf_from_s3(BUCKET_NAME, object_key)
@@ -117,16 +117,24 @@ def upload_images_to_s3(bucket_name, case_id, original_pdf_key, images):
 
 def update_dynamodb_status(case_id, new_status, image_paths=None):
     """ Actualiza el campo 'status' de un registro en DynamoDB a 'new_status' """
+    print("pass1")
     update_expression = "SET #s = :new_status"
     expression_values = {":new_status": {"S": new_status}}
     expression_names = {"#s": "status"}
+    print("pass2")
 
     if image_paths:
         update_expression += ", #ip = :image_paths"
         expression_values[":image_paths"] = {"L": [{"S": path} for path in image_paths]}
         expression_names["#ip"] = "image_paths"
+    print("pass3")
+    print(update_expression)
+    print(expression_values)
+    print(expression_names)
 
     try:
+        print("pass4")
+        
         dynamodb.update_item(
             TableName=TABLE_NAME,
             Key={"case_id": {"S": case_id}},
@@ -134,6 +142,7 @@ def update_dynamodb_status(case_id, new_status, image_paths=None):
             ExpressionAttributeNames=expression_names,
             ExpressionAttributeValues=expression_values
         )
+        
         print(f"Status actualizado a '{new_status}' para case_id: {case_id}")
     except ClientError as e:
         print(f"Error actualizando status en DynamoDB: {e.response['Error']['Message']}")
