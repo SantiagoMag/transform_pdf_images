@@ -57,9 +57,9 @@ def lambda_handler(event, context):
                             images = pdf_to_images(pdf_temp_path)
                             
                             # Subir imágenes a S3
-                            upload_images_to_s3(BUCKET_NAME, case_id, object_key, images)
+                            image_paths = upload_images_to_s3(BUCKET_NAME, case_id, object_key, images)
                                 
-                            update_dynamodb_status(item['case_id']['S'],"processed_capture")
+                            update_dynamodb_status(case_id, "processed_capture", image_paths)
                             
                             print(f"PDF {object_key} procesado y guardado en {DESTINATION_FOLDER}")
                             docs_proccesed.append(object_key)
@@ -102,7 +102,8 @@ def pdf_to_images(pdf_path):
 def upload_images_to_s3(bucket_name, case_id, original_pdf_key, images):
     """ Sube las imágenes generadas a S3 en el folder destino """
     base_name = os.path.basename(original_pdf_key).replace(".pdf", "")
-    
+    image_paths = []
+
     for i, img in enumerate(images):
         temp_image_path = f"/tmp/{base_name}_page_{i+1}.png"
         img.save(temp_image_path, "PNG",)
@@ -110,17 +111,28 @@ def upload_images_to_s3(bucket_name, case_id, original_pdf_key, images):
         destination_key = f"{DESTINATION_FOLDER}{case_id}{base_name}_page_{i+1}.png"
         s3.upload_file(temp_image_path, bucket_name, destination_key)
         os.remove(temp_image_path)  # Eliminar archivo temporal
+        image_paths.append(destination_key)  # Guardar el path de la imagen
 
+    return image_paths
 
-def update_dynamodb_status(case_id, new_status):
+def update_dynamodb_status(case_id, new_status, image_paths=None):
     """ Actualiza el campo 'status' de un registro en DynamoDB a 'new_status' """
+    update_expression = "SET #s = :new_status"
+    expression_values = {":new_status": {"S": new_status}}
+    expression_names = {"#s": "status"}
+
+    if image_paths:
+        update_expression += ", #ip = :image_paths"
+        expression_values[":image_paths"] = {"L": [{"S": path} for path in image_paths]}
+        expression_names["#ip"] = "image_paths"
+
     try:
         dynamodb.update_item(
             TableName=TABLE_NAME,
             Key={"case_id": {"S": case_id}},
-            UpdateExpression="SET #s = :new_status",
-            ExpressionAttributeNames={"#s": "status"},
-            ExpressionAttributeValues={":new_status": {"S": f"{new_status}"}}
+            UpdateExpression=update_expression,
+            ExpressionAttributeNames=expression_names,
+            ExpressionAttributeValues=expression_values
         )
         print(f"Status actualizado a '{new_status}' para case_id: {case_id}")
     except ClientError as e:
