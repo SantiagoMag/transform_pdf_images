@@ -130,23 +130,22 @@ def update_dynamodb_status(keys, new_status, image_paths=None):
         expression_values[":image_paths"] = {"L": [{"S": path} for path in image_paths]}
 
     print("pass3")
-    print(update_expression)
-    print(expression_values)
-    print(expression_names)
+    print(f"Tipo de keys[1]: {type(keys[0])}, Valor: {keys[0]}")
+    print(f"Tipo de keys[1]: {type(keys[1])}, Valor: {keys[1]}")
 
     try:
         print("pass4")
         dynamodb.update_item(
             TableName=TABLE_NAME,
             Key={
-                "case_id": {"S": keys[0]},  
-                "upload_timestamp": {"N": keys[1]}
+                "case_id": {"S": str(keys[0])},  
+                "upload_timestamp": {"N": str(keys[1])}
             },
             UpdateExpression=update_expression,
             ExpressionAttributeNames=expression_names,
             ExpressionAttributeValues=expression_values
         )
         
-        print(f"Status actualizado a '{new_status}' para case_id: {case_id}")
+        print(f"Status actualizado a '{new_status}' para case_id: {keys[0]}")
     except ClientError as e:
         print(f"Error actualizando status en DynamoDB: {e.response['Error']['Message']}")
