@@ -45,10 +45,11 @@ def lambda_handler(event, context):
                 for item in response['Items']:
                     object_key =  item['obj_key']['S']
                     case_id = item['case_id']['S']
+                    upload_timestamp = item['case_id']['S']
 
                     if object_key.endswith(".pdf"):
                         try:
-                            update_dynamodb_status(case_id,"processing_capture")
+                            update_dynamodb_status((case_id, upload_timestamp), "processing_capture")
                             
                             # Descargar el PDF desde S3
                             pdf_temp_path = download_pdf_from_s3(BUCKET_NAME, object_key)
@@ -59,7 +60,7 @@ def lambda_handler(event, context):
                             # Subir imágenes a S3
                             image_paths = upload_images_to_s3(BUCKET_NAME, case_id, object_key, images)
                                 
-                            update_dynamodb_status(case_id, "processed_capture", image_paths)
+                            update_dynamodb_status((case_id, upload_timestamp), "processed_capture", image_paths)
                             
                             print(f"PDF {object_key} procesado y guardado en {DESTINATION_FOLDER}")
                             docs_proccesed.append(object_key)
@@ -115,18 +116,19 @@ def upload_images_to_s3(bucket_name, case_id, original_pdf_key, images):
 
     return image_paths
 
-def update_dynamodb_status(case_id, new_status, image_paths=None):
+def update_dynamodb_status(keys, new_status, image_paths=None):
     """ Actualiza el campo 'status' de un registro en DynamoDB a 'new_status' """
     print("pass1")
     update_expression = "SET #s = :new_status"
-    expression_values = {":new_status": {"S": new_status}}
     expression_names = {"#s": "status"}
+    expression_values = {":new_status": {"S": new_status}}
+    
     print("pass2")
-
     if image_paths:
         update_expression += ", #ip = :image_paths"
-        expression_values[":image_paths"] = {"L": [{"S": path} for path in image_paths]}
         expression_names["#ip"] = "image_paths"
+        expression_values[":image_paths"] = {"L": [{"S": path} for path in image_paths]}
+
     print("pass3")
     print(update_expression)
     print(expression_values)
@@ -134,10 +136,12 @@ def update_dynamodb_status(case_id, new_status, image_paths=None):
 
     try:
         print("pass4")
-        
         dynamodb.update_item(
             TableName=TABLE_NAME,
-            Key={"case_id": {"S": case_id}},
+            Key={
+                "case_id": {"S": keys[0]},  
+                "upload_timestamp": {"N": keys[1]}
+            },
             UpdateExpression=update_expression,
             ExpressionAttributeNames=expression_names,
             ExpressionAttributeValues=expression_values
