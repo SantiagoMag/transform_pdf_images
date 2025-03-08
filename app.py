@@ -45,7 +45,7 @@ def lambda_handler(event, context):
                 for item in response['Items']:
                     object_key =  item['obj_key']['S']
                     case_id = item['case_id']['S']
-                    upload_timestamp = item['case_id']['S']
+                    upload_timestamp = item['upload_timestamp']['S']
 
                     if object_key.endswith(".pdf"):
                         try:
