@@ -45,7 +45,7 @@ def lambda_handler(event, context):
                 for item in response['Items']:
                     object_key =  item['obj_key']['S']
                     case_id = item['case_id']['S']
-                    upload_timestamp = item['upload_timestamp']['S']
+                    upload_timestamp = item['upload_timestamp']['N']
 
                     if object_key.endswith(".pdf"):
                         try:
@@ -130,7 +130,8 @@ def update_dynamodb_status(keys, new_status, image_paths=None):
         expression_values[":image_paths"] = {"L": [{"S": path} for path in image_paths]}
 
     print("pass3")
-    print(f"Tipo de keys[1]: {type(keys[0])}, Valor: {keys[0]}")
+    print(f"Tipo de keys: {keys}")
+    print(f"Tipo de keys[0]: {type(keys[0])}, Valor: {keys[0]}")
     print(f"Tipo de keys[1]: {type(keys[1])}, Valor: {keys[1]}")
 
     try:
