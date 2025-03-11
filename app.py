@@ -112,7 +112,7 @@ def pdf_to_images(pdf_path, max_width=1024, max_height=1024):
     resized_images = []
     
     for img in images:
-        img.thumbnail((max_width, max_height), Image.ANTIALIAS)  # Redimensiona manteniendo proporción
+        img.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)  # Redimensiona manteniendo proporción
         resized_images.append(img)
 
     return resized_images
