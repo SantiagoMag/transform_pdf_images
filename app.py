@@ -3,6 +3,7 @@ import json
 import boto3
 import pdf2image
 import tempfile
+from PIL import Image
 from botocore.exceptions import ClientError
 
 s3 = boto3.client('s3')
@@ -99,6 +100,22 @@ def pdf_to_images(pdf_path):
 
     return pdf2image.convert_from_path(pdf_path, dpi=300, poppler_path=poppler_path, fmt='png')
 
+def pdf_to_images(pdf_path, max_width=1024, max_height=1024):
+    """ 
+    Convierte un PDF a imágenes en formato PNG y las redimensiona para que no superen max_width y max_height.
+    """
+    poppler_path = "/usr/bin"
+
+    # Convertir PDF a imágenes con resolución moderada
+    images = pdf2image.convert_from_path(pdf_path, dpi=150, poppler_path=poppler_path, fmt='png')
+
+    resized_images = []
+    
+    for img in images:
+        img.thumbnail((max_width, max_height), Image.ANTIALIAS)  # Redimensiona manteniendo proporción
+        resized_images.append(img)
+
+    return resized_images
 
 def upload_images_to_s3(bucket_name, case_id, original_pdf_key, images):
     """ Sube las imágenes generadas a S3 en el folder destino """

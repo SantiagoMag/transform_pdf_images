@@ -2,7 +2,7 @@
 FROM public.ecr.aws/lambda/python:3.9
 
 # Install Poppler utilities
-RUN yum -y install poppler-utils
+RUN yum -y install poppler
 
 # Install pdf2image and its dependencies
 RUN pip install pdf2image boto3
