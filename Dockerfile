@@ -5,7 +5,7 @@ FROM public.ecr.aws/lambda/python:3.9
 RUN yum -y install poppler-utils
 
 # Install pdf2image and its dependencies
-RUN pip install pdf2image boto3 python-poppler
+RUN pip install pdf2image boto3
 
 # Copy function code
 COPY app.py ${LAMBDA_TASK_ROOT}
