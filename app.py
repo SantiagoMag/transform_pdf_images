@@ -12,7 +12,7 @@ dynamodb = boto3.client('dynamodb')
 
 BUCKET_NAME = os.environ['BUCKET_NAME']
 TABLE_NAME = os.environ['DYNAMODB_TABLE']
-DESTINATION_FOLDER = "invoking_bedrock_classification/processed/"
+DESTINATION_FOLDER = "invoking_bedrock_classification/proccesed/"
 
 
 def lambda_handler(event, context):
@@ -132,7 +132,7 @@ def upload_images_to_s3(bucket_name, case_id, original_pdf_key, images):
         img.save(buffer, "PNG")
         buffer.seek(0)
 
-        destination_key = f"{DESTINATION_FOLDER}{case_id}/{base_name}_page_{i+1}.png"
+        destination_key = f"{DESTINATION_FOLDER}{case_id}{base_name}_page_{i+1}.png"
         s3.put_object(Bucket=bucket_name, Key=destination_key, Body=buffer, ContentType="image/png")
 
         return destination_key
