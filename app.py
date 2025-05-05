@@ -6,6 +6,8 @@ import io
 import concurrent.futures
 from PIL import Image
 from botocore.exceptions import ClientError
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 s3 = boto3.client('s3')
 dynamodb = boto3.client('dynamodb')
@@ -17,152 +19,127 @@ DESTINATION_FOLDER = "invoking_bedrock_classification/proccesed/"
 
 def lambda_handler(event, context):
     print("Event received:", json.dumps(event))
-    
-    try:
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future_results = [
-                executor.submit(process_record, json.loads(record['body']).get('batch_id'))
-                for record in event['Records']
-            ]
-            results = [future.result() for future in concurrent.futures.as_completed(future_results)]
-        
-        return {
-            'statusCode': 200,
-            'body': json.dumps(results)
-        }
+    results = []
 
+    try:
+        start = time.time()
+        with ThreadPoolExecutor() as executor:
+            futures = [executor.submit(process_record, json.loads(r['body']).get('batch_id'))
+                       for r in event['Records']]
+            for f in futures:
+                results.extend(f.result())
+        elapsed = time.time() - start
+        print(f"Total lambda execution time: {elapsed:.2f} seconds")
+        return {'statusCode': 200, 'body': json.dumps(results)}
     except ClientError as e:
-        return {
-            'statusCode': 500,
-            'body': json.dumps({'error': e.response['Error']['Message']})
-        }
+        print(f"ClientError: {e}")
+        return {'statusCode': 500, 'body': json.dumps({'error': e.response['Error']['Message']})}
+
 
 
 def process_record(batch_id):
-    """Procesa un batch de documentos de DynamoDB"""
-    filter_expression = "#s = :open"
-    expression_names = {"#s": "status"}
-    expression_values = {":open": {"S": "open"}}
-
+    # Scan DynamoDB for open items (and matching batch_id)
+    filter_expr = "#s = :open"
+    expr_names = {"#s": "status"}
+    expr_vals = {":open": {"S": "open"}}
     if batch_id:
-        filter_expression += " AND #b = :batch_id"
-        expression_names["#b"] = "batch_id"
-        expression_values[":batch_id"] = {"S": batch_id}
+        filter_expr += " AND #b = :batch_id"
+        expr_names["#b"] = "batch_id"
+        expr_vals[":batch_id"] = {"S": batch_id}
 
-    response = dynamodb.scan(
+    resp = dynamodb.scan(
         TableName=TABLE_NAME,
-        FilterExpression=filter_expression,
-        ExpressionAttributeNames=expression_names,
-        ExpressionAttributeValues=expression_values
+        FilterExpression=filter_expr,
+        ExpressionAttributeNames=expr_names,
+        ExpressionAttributeValues=expr_vals
     )
+    items = resp.get('Items', [])
+    processed = []
+    with ThreadPoolExecutor() as executor:
+        futures = [executor.submit(process_pdf, item) for item in items]
+        for f in futures:
+            res = f.result()
+            if res:
+                processed.append(res)
+    return processed
 
-    if 'Items' not in response:
-        return {"message": "No items found matching criteria"}
-
-    docs_processed = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future_results = [
-            executor.submit(process_pdf, item) for item in response['Items']
-        ]
-        for future in concurrent.futures.as_completed(future_results):
-            result = future.result()
-            if result:
-                docs_processed.append(result)
-
-    return docs_processed
 
 
 def process_pdf(item):
-    """Procesa un PDF desde S3, lo convierte en imágenes y actualiza DynamoDB"""
     object_key = item['obj_key']['S']
     case_id = item['case_id']['S']
     upload_timestamp = item['upload_timestamp']['N']
-
-    if not object_key.endswith(".pdf"):
+    if not object_key.lower().endswith('.pdf'):
         return None
-
     try:
+        # update status to processing
         update_dynamodb_status(case_id, upload_timestamp, "processing_capture")
-
-        # Descargar PDF en memoria
+        # download PDF
         pdf_bytes = download_pdf_from_s3(BUCKET_NAME, object_key)
-
-        # Convertir PDF a imágenes
-        images = pdf_to_images(pdf_bytes)
-
-        # Subir imágenes a S3 en paralelo
-        image_paths = upload_images_to_s3(BUCKET_NAME, case_id, object_key, images)
-
+        # convert and upload images
+        image_paths = convert_and_upload_images(pdf_bytes, case_id, object_key)
+        # update status to processed with image paths
         update_dynamodb_status(case_id, upload_timestamp, "processed_capture", image_paths)
-
-        print(f"PDF {object_key} procesado y guardado en {DESTINATION_FOLDER}")
+        print(f"Processed PDF {object_key}, uploaded {len(image_paths)} images")
         return object_key
-
     except Exception as e:
-        print(f"Error procesando el PDF {object_key}: {str(e)}")
+        print(f"Error processing {object_key}: {e}")
         return None
 
-
-def download_pdf_from_s3(bucket_name, object_key):
-    """ Descarga un PDF desde S3 y lo carga en memoria como bytes """
-    response = s3.get_object(Bucket=bucket_name, Key=object_key)
-    return response['Body'].read()
+def download_pdf_from_s3(bucket, key):
+    resp = s3.get_object(Bucket=bucket, Key=key)
+    return resp['Body'].read()
 
 
-def pdf_to_images(pdf_bytes, max_width=1024, max_height=1024):
-    """ Convierte un PDF en memoria a imágenes PNG redimensionadas """
-    images = pdf2image.convert_from_bytes(pdf_bytes, dpi=150, fmt='png')
-
-    # Redimensionar imágenes usando ThreadPoolExecutor
-    def resize_image(img):
-        img.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
-        return img
-
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        return list(executor.map(resize_image, images))
-
-
-def upload_images_to_s3(bucket_name, case_id, original_pdf_key, images):
-    """ Sube imágenes a S3 en paralelo y retorna sus rutas """
-    base_name = os.path.basename(original_pdf_key).replace(".pdf", "")
-    image_paths = []
-
-    def upload_image(i, img):
-        buffer = io.BytesIO()
-        img.save(buffer, "PNG")
-        buffer.seek(0)
-
-        destination_key = f"{DESTINATION_FOLDER}{case_id}{base_name}_page_{i+1}.png"
-        s3.put_object(Bucket=bucket_name, Key=destination_key, Body=buffer, ContentType="image/png")
-
-        return destination_key
-
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        image_paths = list(executor.map(upload_image, range(len(images)), images))
-
-    return image_paths
-
-
-def update_dynamodb_status(case_id, upload_timestamp, new_status, image_paths=None):
-    """ Actualiza el estado en DynamoDB """
-    update_expression = "SET #s = :new_status"
-    expression_names = {"#s": "status"}
-    expression_values = {":new_status": {"S": new_status}}
-
-    if image_paths:
-        update_expression += ", #ip = :image_paths"
-        expression_names["#ip"] = "image_paths"
-        expression_values[":image_paths"] = {"L": [{"S": path} for path in image_paths]} 
-
-    try:
-        dynamodb.update_item(
-            TableName=TABLE_NAME,
-            Key={"case_id": {"S": case_id}, "upload_timestamp": {"N": upload_timestamp}},
-            UpdateExpression=update_expression,
-            ExpressionAttributeNames=expression_names,
-            ExpressionAttributeValues=expression_values
+def convert_and_upload_images(pdf_bytes, case_id, original_key):
+    # Convert PDF bytes to PIL Images
+    images = pdf2image.convert_from_bytes(pdf_bytes, dpi=DPI, fmt='jpeg')
+    # Prepare args for parallel processing
+    args = [(idx, img) for idx, img in enumerate(images)]
+    # Process pages in parallel
+    with ThreadPoolExecutor() as executor:
+        results = executor.map(
+            lambda p: compress_and_upload(p, case_id, original_key), args
         )
-        print(f"Status actualizado a '{new_status}' para case_id: {case_id}")
+    # Filter out failed pages
+    return [r for r in results if r]
 
-    except ClientError as e:
-        print(f"Error actualizando status en DynamoDB: {e.response['Error']['Message']}")
+def compress_and_upload(idx_img_tuple, case_id, original_key):
+    idx, img = idx_img_tuple
+    # Resize to max dimensions
+    img.thumbnail((MAX_WIDTH, MAX_HEIGHT), Image.Resampling.LANCZOS)
+    quality = 100
+    # Try compressing until size <= MAX_SIZE_MB
+    while quality >= 50:
+        buf = io.BytesIO()
+        img.convert('RGB').save(buf, format='JPEG', quality=quality, optimize=True)
+        size_mb = buf.tell() / (1024*1024)
+        if size_mb <= MAX_SIZE_MB:
+            buf.seek(0)
+            base = os.path.basename(original_key).replace('.pdf', '')
+            key = f"{DESTINATION_FOLDER}{case_id}/{base}_page_{idx+1}.jpg"
+            # Upload to S3
+            s3.put_object(Bucket=BUCKET_NAME, Key=key, Body=buf, ContentType='image/jpeg')
+            print(f"Uploaded {key} (size: {size_mb:.2f} MB, quality: {quality})")
+            return key
+        quality -= 5
+    print(f"⚠️ Page {idx+1} of {original_key} exceeds size limit.")
+    return None
+
+
+def update_dynamodb_status(case_id, upload_ts, new_status, image_paths=None):
+    expr = "SET #s = :st"
+    names = {"#s": "status"}
+    vals = {":st": {"S": new_status}}
+    if image_paths:
+        expr += ", #ip = :paths"
+        names["#ip"] = "image_paths"
+        vals[":paths"] = {"L": [{"S": p} for p in image_paths]}
+    dynamodb.update_item(
+        TableName=TABLE_NAME,
+        Key={"case_id": {"S": case_id}, "upload_timestamp": {"N": upload_ts}},
+        UpdateExpression=expr,
+        ExpressionAttributeNames=names,
+        ExpressionAttributeValues=vals
+    )
+    print(f"DynamoDB status for {case_id} updated to {new_status}")
