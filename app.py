@@ -16,6 +16,11 @@ BUCKET_NAME = os.environ['BUCKET_NAME']
 TABLE_NAME = os.environ['DYNAMODB_TABLE']
 DESTINATION_FOLDER = "invoking_bedrock_classification/proccesed/"
 
+# Image processing settings
+MAX_WIDTH = int(os.environ.get('MAX_WIDTH', 4096))
+MAX_HEIGHT = int(os.environ.get('MAX_HEIGHT', 4096))
+DPI = int(os.environ.get('DPI', 300))
+MAX_SIZE_MB = float(os.environ.get('MAX_SIZE_MB', 4.5))
 
 def lambda_handler(event, context):
     print("Event received:", json.dumps(event))
