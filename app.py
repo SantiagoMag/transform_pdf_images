@@ -122,7 +122,7 @@ def compress_and_upload(idx_img_tuple, case_id, original_key):
         if size_mb <= MAX_SIZE_MB:
             buf.seek(0)
             base = os.path.basename(original_key).replace('.pdf', '')
-            key = f"{DESTINATION_FOLDER}{case_id}/{base}_page_{idx+1}.jpg"
+            key = f"{DESTINATION_FOLDER}{case_id}{base}_page_{idx+1}.jpg"
             # Upload to S3
             s3.put_object(Bucket=BUCKET_NAME, Key=key, Body=buf, ContentType='image/jpeg')
             print(f"Uploaded {key} (size: {size_mb:.2f} MB, quality: {quality})")
