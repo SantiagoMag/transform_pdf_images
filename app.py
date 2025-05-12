@@ -29,7 +29,7 @@ def lambda_handler(event, context):
     try:
         start = time.time()
         with ThreadPoolExecutor() as executor:
-            futures = [executor.submit(process_record, json.loads(r['body']).get('batch_id'))
+            futures = [executor.submit(process_record, json.loads(r['body']).get('batch_id', '').strip())
                        for r in event['Records']]
             for f in futures:
                 results.extend(f.result())
@@ -44,6 +44,7 @@ def lambda_handler(event, context):
 
 def process_record(batch_id):
     # Scan DynamoDB for open items (and matching batch_id)
+    print(f"batch_id: {batch_id}")
     filter_expr = "#s = :open"
     expr_names = {"#s": "status"}
     expr_vals = {":open": {"S": "open"}}
@@ -58,6 +59,8 @@ def process_record(batch_id):
         ExpressionAttributeNames=expr_names,
         ExpressionAttributeValues=expr_vals
     )
+    print(f"DynamoDB scan result for batch_id {batch_id}:", json.dumps(resp, indent=2))
+
     items = resp.get('Items', [])
     processed = []
     with ThreadPoolExecutor() as executor:
