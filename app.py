@@ -55,7 +55,6 @@ def scan_all_open(batch_id):
                 ":batch_id": {"S": batch_id},
             }
         }
-        # Sólo añadir ExclusiveStartKey si no es None
         if exclusive_start_key:
             scan_kwargs["ExclusiveStartKey"] = exclusive_start_key
 
@@ -71,28 +70,12 @@ def scan_all_open(batch_id):
 
 
 def process_record(batch_id):
-    # Scan DynamoDB for open items (and matching batch_id)
     print(f"batch_id: {batch_id}")
-    # filter_expr = "#s = :open"
-    # expr_names = {"#s": "status"}
-    # expr_vals = {":open": {"S": "open"}}
-    # if batch_id:
-    #     filter_expr += " AND #b = :batch_id"
-    #     expr_names["#b"] = "batch_id"
-    #     expr_vals[":batch_id"] = {"S": batch_id}
-
-    resp = scan_all_open(batch_id)
-    #resp = items.get("Items", [])
-
-    # resp = dynamodb.scan(
-    #     TableName=TABLE_NAME,
-    #     FilterExpression=filter_expr,
-    #     ExpressionAttributeNames=expr_names,
-    #     ExpressionAttributeValues=expr_vals
-    # )
+    
+    items = scan_all_open(batch_id)
+    
     print(f"DynamoDB scan result for batch_id {batch_id}:", json.dumps(resp))
 
-    items = resp.get('Items', [])
     processed = []
     with ThreadPoolExecutor() as executor:
         futures = [executor.submit(process_pdf, item) for item in items]
