@@ -46,22 +46,29 @@ def scan_all_open(batch_id):
     exclusive_start_key = None
 
     while True:
-        resp = dynamodb.scan(
-            TableName=TABLE_NAME,
-            FilterExpression="#s = :open AND #b = :batch_id",
-            ExpressionAttributeNames={"#s": "status", "#b": "batch_id"},
-            ExpressionAttributeValues={":open": {"S": "open"}, 
-                                    ":batch_id": {"S": batch_id}},
-            ExclusiveStartKey=exclusive_start_key  # None en la primera iteración
-        )
+        scan_kwargs = {
+            "TableName": TABLE_NAME,
+            "FilterExpression": "#s = :open AND #b = :batch_id",
+            "ExpressionAttributeNames": {"#s": "status", "#b": "batch_id"},
+            "ExpressionAttributeValues": {
+                ":open": {"S": "open"},
+                ":batch_id": {"S": batch_id},
+            }
+        }
+        # Sólo añadir ExclusiveStartKey si no es None
+        if exclusive_start_key:
+            scan_kwargs["ExclusiveStartKey"] = exclusive_start_key
+
+        resp = dynamodb.scan(**scan_kwargs)
         items.extend(resp.get("Items", []))
-        # Si hay más páginas, seguimos
+
         if "LastEvaluatedKey" in resp:
             exclusive_start_key = resp["LastEvaluatedKey"]
         else:
             break
 
     return items
+
 
 def process_record(batch_id):
     # Scan DynamoDB for open items (and matching batch_id)
