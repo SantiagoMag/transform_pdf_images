@@ -41,6 +41,27 @@ def lambda_handler(event, context):
         return {'statusCode': 500, 'body': json.dumps({'error': e.response['Error']['Message']})}
 
 
+def scan_all_open(batch_id):
+    items = []
+    exclusive_start_key = None
+
+    while True:
+        resp = dynamodb.scan(
+            TableName=TABLE_NAME,
+            FilterExpression="#s = :open AND #b = :batch_id",
+            ExpressionAttributeNames={"#s": "status", "#b": "batch_id"},
+            ExpressionAttributeValues={":open": {"S": "open"}, 
+                                    ":batch_id": {"S": batch_id}},
+            ExclusiveStartKey=exclusive_start_key  # None en la primera iteración
+        )
+        items.extend(resp.get("Items", []))
+        # Si hay más páginas, seguimos
+        if "LastEvaluatedKey" in resp:
+            exclusive_start_key = resp["LastEvaluatedKey"]
+        else:
+            break
+
+    return items
 
 def process_record(batch_id):
     # Scan DynamoDB for open items (and matching batch_id)
@@ -53,12 +74,8 @@ def process_record(batch_id):
     #     expr_names["#b"] = "batch_id"
     #     expr_vals[":batch_id"] = {"S": batch_id}
 
-    resp = dynamodb.scan(
-        TableName=TABLE_NAME,
-        FilterExpression="#s = :open AND #b = :batch_id",
-        ExpressionAttributeNames={"#s": "status", "#b": "batch_id"},
-        ExpressionAttributeValues={":open": {"S": "open"}, ":batch_id": {"S": batch_id}}
-    )
+    resp = scan_all_open(batch_id)
+    #resp = items.get("Items", [])
 
     # resp = dynamodb.scan(
     #     TableName=TABLE_NAME,
@@ -66,7 +83,7 @@ def process_record(batch_id):
     #     ExpressionAttributeNames=expr_names,
     #     ExpressionAttributeValues=expr_vals
     # )
-    print(f"DynamoDB scan result for batch_id {batch_id}:", json.dumps(resp, indent=2))
+    print(f"DynamoDB scan result for batch_id {batch_id}:", json.dumps(resp))
 
     items = resp.get('Items', [])
     processed = []
