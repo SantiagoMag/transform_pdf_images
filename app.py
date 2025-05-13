@@ -45,20 +45,27 @@ def lambda_handler(event, context):
 def process_record(batch_id):
     # Scan DynamoDB for open items (and matching batch_id)
     print(f"batch_id: {batch_id}")
-    filter_expr = "#s = :open"
-    expr_names = {"#s": "status"}
-    expr_vals = {":open": {"S": "open"}}
-    if batch_id:
-        filter_expr += " AND #b = :batch_id"
-        expr_names["#b"] = "batch_id"
-        expr_vals[":batch_id"] = {"S": batch_id}
+    # filter_expr = "#s = :open"
+    # expr_names = {"#s": "status"}
+    # expr_vals = {":open": {"S": "open"}}
+    # if batch_id:
+    #     filter_expr += " AND #b = :batch_id"
+    #     expr_names["#b"] = "batch_id"
+    #     expr_vals[":batch_id"] = {"S": batch_id}
 
     resp = dynamodb.scan(
         TableName=TABLE_NAME,
-        FilterExpression=filter_expr,
-        ExpressionAttributeNames=expr_names,
-        ExpressionAttributeValues=expr_vals
+        FilterExpression="#s = :open AND #b = :batch_id",
+        ExpressionAttributeNames={"#s": "status", "#b": "batch_id"},
+        ExpressionAttributeValues={":open": {"S": "open"}, ":batch_id": {"S": batch_id}}
     )
+
+    # resp = dynamodb.scan(
+    #     TableName=TABLE_NAME,
+    #     FilterExpression=filter_expr,
+    #     ExpressionAttributeNames=expr_names,
+    #     ExpressionAttributeValues=expr_vals
+    # )
     print(f"DynamoDB scan result for batch_id {batch_id}:", json.dumps(resp, indent=2))
 
     items = resp.get('Items', [])
