@@ -74,7 +74,7 @@ def process_record(batch_id):
     
     items = scan_all_open(batch_id)
     
-    print(f"DynamoDB scan result for batch_id {batch_id}:", json.dumps(resp))
+    print(f"DynamoDB scan result for batch_id {batch_id}:", json.dumps(items))
 
     processed = []
     with ThreadPoolExecutor() as executor:
